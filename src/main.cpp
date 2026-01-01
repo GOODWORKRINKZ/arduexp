@@ -1,10 +1,12 @@
 /*
- * Синтезатор на базе библиотеки Mozzi для Arduino UNO
+ * Полифонический синтезатор на базе библиотеки Mozzi для Arduino UNO
  *
  * Подключение:
  * - Аудио выход: Пин 9 (через резистор 100 Ом и конденсатор к динамику)
  * - Кнопки нот: C=8, D=7, E=6, F=5, G=4, A=3, B=2 (семь нот)
  * - Кнопка выбора инструмента: пин 9 (BIT_PIN) - переключает между 4 инструментами
+ *
+ * ПОЛИФОНИЯ: можно нажимать несколько кнопок одновременно для игры аккордов!
  *
  * Инструменты (тембры):
  * 0 - Синусоида (чистый тон, флейта)
@@ -22,16 +24,13 @@
 #include <tables/square_no_alias_2048_int8.h> // Меандр
 #include <tables/triangle2048_int8.h>  // Треугольник
 
-#define CONTROL_RATE 64 // Частота опроса управления (Гц)
+#define CONTROL_RATE 128 // Частота опроса управления (Гц) - увеличена для лучшего отклика
+
+// Количество нот (голосов)
+#define NUM_VOICES 7
 
 // Пины для кнопок (как они уже подключены)
-const int C_PIN = 8;
-const int D_PIN = 7;
-const int E_PIN = 6;
-const int F_PIN = 5;
-const int G_PIN = 4;
-const int A_PIN = 3;
-const int B_PIN = 2;
+const int NOTE_PINS[NUM_VOICES] = {8, 7, 6, 5, 4, 3, 2}; // C, D, E, F, G, A, B
 const int BIT_PIN = 9; // Кнопка выбора инструмента (тембра)
 
 // Массив нот (частоты в Гц)
@@ -45,38 +44,51 @@ const float NOTES[] = {
     493.88, // B4
 };
 
-// Создаем осцилляторы для разных волновых форм
-Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> oscSin(SIN2048_DATA);
-Oscil<SAW2048_NUM_CELLS, AUDIO_RATE> oscSaw(SAW2048_DATA);
-Oscil<SQUARE_NO_ALIAS_2048_NUM_CELLS, AUDIO_RATE> oscSquare(SQUARE_NO_ALIAS_2048_DATA);
-Oscil<TRIANGLE2048_NUM_CELLS, AUDIO_RATE> oscTriangle(TRIANGLE2048_DATA);
+// Создаем осцилляторы для каждой ноты (голоса) и каждого инструмента
+// Синусоида
+Oscil<SIN2048_NUM_CELLS, AUDIO_RATE> oscSin[NUM_VOICES];
+
+// Пила
+Oscil<SAW2048_NUM_CELLS, AUDIO_RATE> oscSaw[NUM_VOICES];
+
+// Меандр
+Oscil<SQUARE_NO_ALIAS_2048_NUM_CELLS, AUDIO_RATE> oscSquare[NUM_VOICES];
+
+// Треугольник
+Oscil<TRIANGLE2048_NUM_CELLS, AUDIO_RATE> oscTriangle[NUM_VOICES];
 
 // Переменные состояния
 int currentInstrument = 0;  // Текущий инструмент (0-3: синус, пила, меандр, треугольник)
-int currentNote = -1;       // Текущая играющая нота (-1 = нет ноты)
+bool noteActive[NUM_VOICES]; // Какие ноты сейчас играют
 bool bitButtonPressed = false;
 unsigned long lastBitPressTime = 0;
 const unsigned long DEBOUNCE_DELAY = 200; // Антидребезг 200 мс
 
 void setup() {
-  // Инициализация кнопок
-  pinMode(C_PIN, INPUT);
-  pinMode(D_PIN, INPUT);
-  pinMode(E_PIN, INPUT);
-  pinMode(F_PIN, INPUT);
-  pinMode(G_PIN, INPUT);
-  pinMode(A_PIN, INPUT);
-  pinMode(B_PIN, INPUT);
+  // Инициализация кнопок нот
+  for (int i = 0; i < NUM_VOICES; i++) {
+    pinMode(NOTE_PINS[i], INPUT);
+    noteActive[i] = false;
+    
+    // Инициализируем осцилляторы для каждого голоса
+    oscSin[i].setTable(SIN2048_DATA);
+    oscSin[i].setFreq(NOTES[i]);
+    
+    oscSaw[i].setTable(SAW2048_DATA);
+    oscSaw[i].setFreq(NOTES[i]);
+    
+    oscSquare[i].setTable(SQUARE_NO_ALIAS_2048_DATA);
+    oscSquare[i].setFreq(NOTES[i]);
+    
+    oscTriangle[i].setTable(TRIANGLE2048_DATA);
+    oscTriangle[i].setFreq(NOTES[i]);
+  }
+  
+  // Кнопка выбора инструмента
   pinMode(BIT_PIN, INPUT);
   
   // Запуск Mozzi
   startMozzi(CONTROL_RATE);
-  
-  // Устанавливаем начальную громкость для всех осцилляторов
-  oscSin.setFreq(440);
-  oscSaw.setFreq(440);
-  oscSquare.setFreq(440);
-  oscTriangle.setFreq(440);
 }
 
 void updateControl() {
@@ -92,47 +104,41 @@ void updateControl() {
     bitButtonPressed = false;
   }
   
-  // Проверяем кнопки нот
-  currentNote = -1;
-  
-  if (digitalRead(C_PIN) == HIGH) currentNote = 0;
-  else if (digitalRead(D_PIN) == HIGH) currentNote = 1;
-  else if (digitalRead(E_PIN) == HIGH) currentNote = 2;
-  else if (digitalRead(F_PIN) == HIGH) currentNote = 3;
-  else if (digitalRead(G_PIN) == HIGH) currentNote = 4;
-  else if (digitalRead(A_PIN) == HIGH) currentNote = 5;
-  else if (digitalRead(B_PIN) == HIGH) currentNote = 6;
-  
-  // Устанавливаем частоту для всех осцилляторов
-  if (currentNote >= 0) {
-    float freq = NOTES[currentNote];
-    oscSin.setFreq(freq);
-    oscSaw.setFreq(freq);
-    oscSquare.setFreq(freq);
-    oscTriangle.setFreq(freq);
+  // Проверяем кнопки нот - обновляем состояние каждой ноты
+  for (int i = 0; i < NUM_VOICES; i++) {
+    noteActive[i] = (digitalRead(NOTE_PINS[i]) == HIGH);
   }
 }
 
 AudioOutput_t updateAudio() {
-  int sample = 0;
+  long sample = 0;
+  int activeCount = 0;
   
-  // Если нажата кнопка ноты, воспроизводим звук выбранным инструментом
-  if (currentNote >= 0) {
-    // Выбираем инструмент (осциллятор) в зависимости от currentInstrument
-    switch (currentInstrument) {
-      case 0: // Синусоида (чистый тон, флейта)
-        sample = oscSin.next();
-        break;
-      case 1: // Пила (яркий, резкий звук, синтезатор)
-        sample = oscSaw.next();
-        break;
-      case 2: // Меандр (полый звук, кларнет)
-        sample = oscSquare.next();
-        break;
-      case 3: // Треугольник (мягкий звук, виолончель)
-        sample = oscTriangle.next();
-        break;
+  // Суммируем все активные голоса
+  for (int i = 0; i < NUM_VOICES; i++) {
+    if (noteActive[i]) {
+      // Выбираем инструмент (осциллятор) в зависимости от currentInstrument
+      switch (currentInstrument) {
+        case 0: // Синусоида (чистый тон, флейта)
+          sample += oscSin[i].next();
+          break;
+        case 1: // Пила (яркий, резкий звук, синтезатор)
+          sample += oscSaw[i].next();
+          break;
+        case 2: // Меандр (полый звук, кларнет)
+          sample += oscSquare[i].next();
+          break;
+        case 3: // Треугольник (мягкий звук, виолончель)
+          sample += oscTriangle[i].next();
+          break;
+      }
+      activeCount++;
     }
+  }
+  
+  // Если играют несколько нот, нормализуем амплитуду чтобы избежать клиппинга
+  if (activeCount > 1) {
+    sample = sample / activeCount;
   }
   
   return MonoOutput::from8Bit(sample);
