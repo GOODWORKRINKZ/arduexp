@@ -15,6 +15,18 @@ const int BUZZER1_PIN = 9;
 const int BUZZER2_PIN = 10;
 
 // Определение нот (частоты в Гц)
+#define NOTE_C3  131
+#define NOTE_CS3 139
+#define NOTE_D3  147
+#define NOTE_DS3 156
+#define NOTE_E3  165
+#define NOTE_F3  175
+#define NOTE_FS3 185
+#define NOTE_G3  196
+#define NOTE_GS3 208
+#define NOTE_A3  220
+#define NOTE_AS3 233
+#define NOTE_B3  247
 #define NOTE_C4  262
 #define NOTE_CS4 277
 #define NOTE_D4  294
@@ -186,6 +198,14 @@ void startMelody(int melodyNumber) {
       Serial.println(F("Неизвестная мелодия"));
       return;
   }
+  
+  // Начинаем играть первые ноты сразу
+  if (currentMelody1[0].frequency != REST) {
+    tone(BUZZER1_PIN, currentMelody1[0].frequency);
+  }
+  if (currentMelody2[0].frequency != REST) {
+    tone(BUZZER2_PIN, currentMelody2[0].frequency);
+  }
 }
 
 void stopMelody() {
@@ -220,10 +240,12 @@ void loop() {
   // Управление первым бузером
   if (currentNote1 < currentLength1) {
     if (currentTime - buzzer1Time >= currentMelody1[currentNote1].duration) {
+      // Переходим к следующей ноте
       currentNote1++;
       buzzer1Time = currentTime;
       
       if (currentNote1 < currentLength1) {
+        // Играем следующую ноту
         if (currentMelody1[currentNote1].frequency == REST) {
           noTone(BUZZER1_PIN);
         } else {
@@ -238,10 +260,12 @@ void loop() {
   // Управление вторым бузером
   if (currentNote2 < currentLength2) {
     if (currentTime - buzzer2Time >= currentMelody2[currentNote2].duration) {
+      // Переходим к следующей ноте
       currentNote2++;
       buzzer2Time = currentTime;
       
       if (currentNote2 < currentLength2) {
+        // Играем следующую ноту
         if (currentMelody2[currentNote2].frequency == REST) {
           noTone(BUZZER2_PIN);
         } else {
@@ -260,6 +284,15 @@ void loop() {
     currentNote2 = 0;
     buzzer1Time = millis();
     buzzer2Time = millis();
+    
+    // Начинаем играть первые ноты
+    if (currentMelody1[0].frequency != REST) {
+      tone(BUZZER1_PIN, currentMelody1[0].frequency);
+    }
+    if (currentMelody2[0].frequency != REST) {
+      tone(BUZZER2_PIN, currentMelody2[0].frequency);
+    }
+    
     Serial.println(F("Повтор мелодии..."));
   }
 }
