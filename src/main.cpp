@@ -50,8 +50,9 @@ int photo2Value = 0;  // Значение с второго фоторезист
 
 // Переменные для управления звуком
 int currentFrequency = 0;
-int currentDuration = 100;  // Минимальная длительность в мс
+int currentDuration = 50;  // Начальная длительность (минимальная)
 unsigned long lastNoteTime = 0;
+unsigned long lastPrintTime = 0;  // Для вывода в Serial Monitor
 
 // Параметры для сглаживания показаний
 const int SMOOTH_SAMPLES = 5;
@@ -126,11 +127,12 @@ void loop() {
   int duration = mapToDuration(photo2Value);
   
   // Проверяем, пора ли играть новую ноту
+  // Используется currentDuration из предыдущей итерации для определения времени
   if (currentTime - lastNoteTime >= currentDuration) {
     // Останавливаем предыдущий звук
     noTone(BUZZER_PIN);
     
-    // Получаем новую частоту
+    // Получаем новую частоту и длительность
     currentFrequency = NOTES[noteIndex];
     currentDuration = duration;
     
@@ -141,7 +143,6 @@ void loop() {
     lastNoteTime = currentTime;
     
     // Выводим информацию в Serial Monitor
-    static unsigned long lastPrintTime = 0;
     if (currentTime - lastPrintTime >= SERIAL_PRINT_INTERVAL) {
       Serial.print(F("Фоторезистор1: "));
       Serial.print(photo1Value);
