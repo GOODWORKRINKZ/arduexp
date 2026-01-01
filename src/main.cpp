@@ -57,11 +57,16 @@ unsigned long lastNoteTime = 0;
 const int SMOOTH_SAMPLES = 5;
 int photo1History[SMOOTH_SAMPLES] = {0};
 int photo2History[SMOOTH_SAMPLES] = {0};
-int historyIndex = 0;
+int photo1HistoryIndex = 0;
+int photo2HistoryIndex = 0;
+
+// Интервал вывода информации в Serial Monitor (мс)
+const int SERIAL_PRINT_INTERVAL = 500;
 
 // Функция для сглаживания показаний фоторезистора
-int smoothReading(int newValue, int history[], int numSamples) {
-  history[historyIndex] = newValue;
+int smoothReading(int newValue, int history[], int numSamples, int& historyIdx) {
+  history[historyIdx] = newValue;
+  historyIdx = (historyIdx + 1) % numSamples;
   
   long sum = 0;
   for (int i = 0; i < numSamples; i++) {
@@ -85,8 +90,6 @@ int mapToDuration(int photoValue) {
 
 void setup() {
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(PHOTORESISTOR1_PIN, INPUT);
-  pinMode(PHOTORESISTOR2_PIN, INPUT);
   
   Serial.begin(9600);
   Serial.println(F("=== Интерактивный музыкальный проект с фоторезисторами ==="));
@@ -115,11 +118,8 @@ void loop() {
   int rawPhoto2 = analogRead(PHOTORESISTOR2_PIN);
   
   // Сглаживаем показания
-  photo1Value = smoothReading(rawPhoto1, photo1History, SMOOTH_SAMPLES);
-  photo2Value = smoothReading(rawPhoto2, photo2History, SMOOTH_SAMPLES);
-  
-  // Обновляем индекс истории
-  historyIndex = (historyIndex + 1) % SMOOTH_SAMPLES;
+  photo1Value = smoothReading(rawPhoto1, photo1History, SMOOTH_SAMPLES, photo1HistoryIndex);
+  photo2Value = smoothReading(rawPhoto2, photo2History, SMOOTH_SAMPLES, photo2HistoryIndex);
   
   // Преобразуем показания в ноту и длительность
   int noteIndex = mapToNote(photo1Value);
@@ -142,7 +142,7 @@ void loop() {
     
     // Выводим информацию в Serial Monitor
     static unsigned long lastPrintTime = 0;
-    if (currentTime - lastPrintTime >= 500) {  // Выводим каждые 500 мс
+    if (currentTime - lastPrintTime >= SERIAL_PRINT_INTERVAL) {
       Serial.print(F("Фоторезистор1: "));
       Serial.print(photo1Value);
       Serial.print(F(" | Нота: "));
